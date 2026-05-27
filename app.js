@@ -57,7 +57,24 @@ function loadMap(url) {
     mapImageObj.src = url;
 }
 loadMap(document.getElementById('map-select').value);
-document.getElementById('map-select').addEventListener('change', (e) => loadMap(e.target.value));
+document.getElementById('map-select').addEventListener('change', (e) => {
+    // Clear all canvas contents on map switch
+    transformer.nodes([]);
+    selectedNode = null;
+    
+    // Destroy all elements in objectLayer except the transformer
+    objectLayer.getChildren().filter(node => node !== transformer).forEach(node => node.destroy());
+    
+    // Destroy all drawings in drawLayer
+    drawLayer.destroyChildren();
+    
+    // Redraw layers
+    objectLayer.batchDraw();
+    drawLayer.batchDraw();
+    
+    // Load new map image
+    loadMap(e.target.value);
+});
 
 
 // ==========================================
