@@ -1,6 +1,6 @@
 // ========================================================
 // Hachimii - FF14 Front Line Tactics
-// Version: v0.3.8 (Tactics Code Base64 LZW Compression Edition)
+// Version: v0.3.9 (Tactics Code Base64 LZW Compression Edition)
 // Engine: Konva.js (Multi-Layer Architecture)
 // ========================================================
 
@@ -634,7 +634,7 @@ function switchToMoveMode() {
         const btn = document.getElementById(`gen-object-${i}`);
         if (btn) btn.classList.remove('active');
     }
-    for (let i = 0; i <= 15; i++) {
+    for (let i = 0; i <= 21; i++) {
         const btn = document.getElementById(`gen-marker-${i}`);
         if (btn) btn.classList.remove('active');
     }
@@ -660,7 +660,7 @@ function enableDrawMode(modeStr, btnId, cursor = 'precise') {
         const btn = document.getElementById(`gen-object-${i}`);
         if (btn) btn.classList.remove('active');
     }
-    for (let i = 0; i <= 15; i++) {
+    for (let i = 0; i <= 21; i++) {
         const btn = document.getElementById(`gen-marker-${i}`);
         if (btn) btn.classList.remove('active');
     }
@@ -682,7 +682,7 @@ function handleColorButtonClick(color, tag, text) {
         const btn = document.getElementById(`gen-object-${i}`);
         if (btn) btn.classList.remove('active');
     }
-    for (let i = 0; i <= 15; i++) {
+    for (let i = 0; i <= 21; i++) {
         const btn = document.getElementById(`gen-marker-${i}`);
         if (btn) btn.classList.remove('active');
     }
@@ -739,7 +739,7 @@ function setSpawnMode(mode) {
             const btn = document.getElementById(`gen-object-${i}`);
             if (btn) btn.classList.remove('active');
         }
-        for (let i = 0; i <= 15; i++) {
+        for (let i = 0; i <= 21; i++) {
             const btn = document.getElementById(`gen-marker-${i}`);
             if (btn) btn.classList.remove('active');
         }
@@ -769,7 +769,7 @@ function setObjectSpawnMode(mode) {
         updateButtonUI(null);
         spawnMode = null; // cancel team spawn mode when selecting object mode
         markerSpawnMode = null;
-        for (let i = 0; i <= 15; i++) {
+        for (let i = 0; i <= 21; i++) {
             const btn = document.getElementById(`gen-marker-${i}`);
             if (btn) btn.classList.remove('active');
         }
@@ -913,8 +913,13 @@ function createMarkerSprite(markerIndex, clickX, clickY) {
         imagePath = `marker/power_${markerIndex + 1}.png`;
     } else if (markerIndex >= 5 && markerIndex < 12) {
         imagePath = `marker/p_icon_${markerIndex - 5}.png`;
-    } else {
+    } else if (markerIndex >= 12 && markerIndex < 16) {
         imagePath = `marker/mark_${markerIndex - 11}.png`;
+    } else {
+        const waymarks = ['a', 'b', 'c', '1', '2', '3'];
+        const waymarkName = waymarks[markerIndex - 16];
+        imagePath = `marker/waymark_${waymarkName}.png`;
+        size = 64; // Enlarged to 200% for Map Waymarks!
     }
     
     const img = new Image();
@@ -976,7 +981,7 @@ function setMarkerSpawnMode(mode) {
         }
     }
     // visual feedback for marker buttons
-    for (let i = 0; i <= 15; i++) {
+    for (let i = 0; i <= 21; i++) {
         const btn = document.getElementById(`gen-marker-${i}`);
         if (btn) btn.classList.toggle('active', markerSpawnMode === `marker-${i}`);
     }
@@ -985,7 +990,7 @@ function setMarkerSpawnMode(mode) {
     updateDraggableState();
 }
 
-for (let i = 0; i <= 15; i++) {
+for (let i = 0; i <= 21; i++) {
     const btn = document.getElementById(`gen-marker-${i}`);
     if (btn) {
         btn.addEventListener('click', () => setMarkerSpawnMode(`marker-${i}`));
@@ -1030,7 +1035,7 @@ function exportTacticsJSON() {
     const isLocked = document.getElementById('lock-map') ? (document.getElementById('lock-map').checked ? 1 : 0) : 0;
     
     const data = {
-        v: '0.3.8', 
+        v: '0.3.9', 
         m: mapId,   
         l: isLocked, 
         s: [
