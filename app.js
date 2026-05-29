@@ -105,6 +105,8 @@ objectLayer.add(transformer);
 const contextMenu = document.getElementById('custom-context-menu');
 const teamMarkerMenu = document.getElementById('team-marker-menu');
 const baseFactionMenu = document.getElementById('base-faction-menu');
+const countdownSlider = document.getElementById('countdown-slider');
+const countdownSliderValue = document.getElementById('countdown-slider-value');
 let rightClickedObject = null;
 
 // Dynamically center and position the base faction horizontal menu relative to the selected base icon
@@ -146,6 +148,44 @@ function handleRightClickObject(e, node) {
     if (node.attrs.customType === 'terrain-shape' || (node.attrs.customType === 'object-sprite' && node.attrs.objectType >= 6)) {
         e.evt.preventDefault(); 
         rightClickedObject = node;
+        
+        // Show/hide tomelith-specific menu options
+        const isTomelith = (node.attrs.customType === 'object-sprite' && node.attrs.objectType >= 6);
+        const sliderContainer = document.querySelector('.menu-tomelith-countdown-container');
+        const divider = document.querySelector('.menu-divider-tomelith');
+        
+        if (sliderContainer) sliderContainer.style.display = isTomelith ? 'flex' : 'none';
+        if (divider) divider.style.display = isTomelith ? 'block' : 'none';
+        
+        if (isTomelith && countdownSlider && countdownSliderValue) {
+            const remaining = node.getAttr('countdownRemaining');
+            if (remaining !== null && remaining !== undefined) {
+                countdownSlider.value = remaining;
+                countdownSliderValue.textContent = remaining === 0 ? 'READY' : `${remaining}s`;
+                countdownSliderValue.style.color = remaining === 0 ? '#00ffcc' : '#ff4d4d';
+            } else {
+                countdownSlider.value = 30; // Max (0% progress)
+                countdownSliderValue.textContent = '未設定';
+                countdownSliderValue.style.color = '#aaaaaa';
+            }
+        }
+        
+        // Custom labels for tomeliths vs shapes
+        const capturedItems = document.querySelectorAll('.menu-section-captured');
+        if (capturedItems.length === 4) {
+            if (isTomelith) {
+                capturedItems[0].innerHTML = '🔴 黑渦佔領';
+                capturedItems[1].innerHTML = '🔵 不滅佔領';
+                capturedItems[2].innerHTML = '🟡 雙蛇佔領';
+                capturedItems[3].innerHTML = '🔳 設為中立';
+            } else {
+                capturedItems[0].innerHTML = '🔴 紅色實心';
+                capturedItems[1].innerHTML = '🔵 藍色實心';
+                capturedItems[2].innerHTML = '🟡 黃色實心';
+                capturedItems[3].innerHTML = '🔳 透明空心';
+            }
+        }
+
         contextMenu.style.left = e.evt.clientX + 'px';
         contextMenu.style.top = e.evt.clientY + 'px';
         contextMenu.style.display = 'block';
@@ -361,6 +401,76 @@ function updateTomelithMask(group, teamCode, size) {
         mask.stroke(strokeColor);
         mask.visible(true);
     }
+}// Statically update the red outer countdown arc and text overlays on Tomeliths based on static properties
+function updateTomelithCountdown(group) {
+    const remaining = group.getAttr('countdownRemaining');
+    const total = group.getAttr('countdownTotal');
+    
+    let bgRing = group.findOne('.tomelith-countdown-bg');
+    let arc = group.findOne('.tomelith-countdown-arc');
+    let txt = group.findOne('.tomelith-countdown-text');
+    
+    if (remaining === null || remaining === undefined || total === null || total === undefined) {
+        // Destroy countdown nodes if they exist
+        if (bgRing) bgRing.destroy();
+        if (arc) arc.destroy();
+        if (txt) txt.destroy();
+        return;
+    }
+    
+    // Filled progress: fills up as remaining time decreases
+    const pct = Math.min(1.0, Math.max(0.0, (total - remaining) / total));
+    const angle = pct * 360;
+    
+    const size = group.attrs.objectType === 6 ? 50 : group.attrs.objectType === 7 ? 62 : 75;
+    const radius = size / 2;
+    const centerX = size / 2;
+    const centerY = size / 2;
+    
+    // Create nodes if not exist
+    if (!bgRing) {
+        bgRing = new Konva.Ring({
+            x: centerX,
+            y: centerY,
+            innerRadius: radius + 2,
+            outerRadius: radius + 7,
+            fill: 'rgba(20, 20, 20, 0.6)',
+            stroke: 'rgba(255, 77, 77, 0.25)',
+            strokeWidth: 1.5,
+            name: 'tomelith-countdown-bg',
+            listening: false
+        });
+        group.add(bgRing);
+    }
+    
+    if (!arc) {
+        arc = new Konva.Arc({
+            x: centerX,
+            y: centerY,
+            innerRadius: radius + 2,
+            outerRadius: radius + 7,
+            angle: angle,
+            fill: '#ff4d4d',
+            rotation: -90, // Start from 12 o'clock
+            name: 'tomelith-countdown-arc',
+            listening: false
+        });
+        group.add(arc);
+    } else {
+        arc.angle(angle);
+    }
+    
+    // If the progress is 100% (remaining === 0), turn cyan/green!
+    if (remaining === 0 || pct >= 1.0) {
+        arc.fill('#00ffcc');
+    } else {
+        arc.fill('#ff4d4d');
+    }
+    
+    // Destroy the text node if it exists, as text overlay is not needed above the outer circle
+    if (txt) {
+        txt.destroy();
+    }
 }
 
 function createObjectSprite(objectIndex, x, y, capturedTeam = '0') {
@@ -383,71 +493,83 @@ function createObjectSprite(objectIndex, x, y, capturedTeam = '0') {
         size = 75; // 60 * 1.25 = 75
     }
     
-    // Load image with Promise
-    const img = new Image();
-    img.crossOrigin = 'Anonymous';
-    img.onload = function() {
-        if (objectIndex >= 6) {
-            // It is a Tomelith! Create a Konva.Group to support the transparent radius mask!
-            const group = new Konva.Group({
-                x: x,
-                y: y,
-                draggable: true,
-                customType: 'object-sprite',
-                objectType: objectIndex,
-                capturedTeam: capturedTeam
-            });
+    let createdNode = null;
 
-            const konvaImage = new Konva.Image({
-                image: img,
-                x: 0,
-                y: 0,
-                width: size,
-                height: size,
-                name: 'tomelith-image'
-            });
-            group.add(konvaImage);
+    if (objectIndex >= 6) {
+        // It is a Tomelith! Create a Konva.Group to support the transparent radius mask!
+        const group = new Konva.Group({
+            x: x,
+            y: y,
+            draggable: true,
+            customType: 'object-sprite',
+            objectType: objectIndex,
+            capturedTeam: capturedTeam
+        });
 
-            // Override getClientRect to return only the image's client rect
-            group.getClientRect = function(config) {
-                const imgNode = this.findOne('.tomelith-image');
-                if (imgNode) {
-                    return imgNode.getClientRect(config);
-                }
-                return Konva.Group.prototype.getClientRect.call(this, config);
-            };
+        const konvaImage = new Konva.Image({
+            x: 0,
+            y: 0,
+            width: size,
+            height: size,
+            name: 'tomelith-image'
+        });
+        group.add(konvaImage);
 
-            // Add the transparent captured area mask if occupied
-            updateTomelithMask(group, capturedTeam, size);
+        // Override getClientRect to return only the image's client rect
+        group.getClientRect = function(config) {
+            const imgNode = this.findOne('.tomelith-image');
+            if (imgNode) {
+                return imgNode.getClientRect(config);
+            }
+            return Konva.Group.prototype.getClientRect.call(this, config);
+        };
 
-            objectLayer.add(group);
-            group.moveToBottom(); // Always stay at the bottom, just above map
-            bindObjectEvents(group);
-        } else {
-            // Normal ice sprite
-            const konvaImage = new Konva.Image({
-                image: img,
-                x: x,
-                y: y,
-                width: size,
-                height: size,
-                draggable: true,
-                customType: 'object-sprite',
-                objectType: objectIndex
-            });
-            
-            objectLayer.add(konvaImage);
-            konvaImage.moveToBottom(); // Always stay at the bottom
-            bindObjectEvents(konvaImage);
-        }
-        
-        updateDraggableState();
-        objectLayer.batchDraw();
-    };
-    img.onerror = function() {
-        console.error("Failed to load object image: " + imagePath);
-    };
-    img.src = imagePath;
+        // Add the transparent captured area mask if occupied
+        updateTomelithMask(group, capturedTeam, size);
+
+        // Load image asynchronously
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = function() {
+            konvaImage.image(img);
+            objectLayer.batchDraw();
+        };
+        img.src = imagePath;
+
+        objectLayer.add(group);
+        group.moveToBottom(); // Always stay at the bottom, just above map
+        bindObjectEvents(group);
+        createdNode = group;
+    } else {
+        // Normal ice sprite - Create synchronously
+        const konvaImage = new Konva.Image({
+            x: x,
+            y: y,
+            width: size,
+            height: size,
+            draggable: true,
+            customType: 'object-sprite',
+            objectType: objectIndex
+        });
+
+        // Load image asynchronously
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = function() {
+            konvaImage.image(img);
+            objectLayer.batchDraw();
+        };
+        img.src = imagePath;
+
+        objectLayer.add(konvaImage);
+        konvaImage.moveToBottom(); // Always stay at the bottom
+        bindObjectEvents(konvaImage);
+        createdNode = konvaImage;
+    }
+    
+    updateDraggableState();
+    objectLayer.batchDraw();
+    return createdNode;
 }
 
 contextMenu.addEventListener('click', function(e) {
@@ -455,9 +577,37 @@ contextMenu.addEventListener('click', function(e) {
     if (!item.classList.contains('context-menu-item') || !rightClickedObject) return;
     const fill = item.getAttribute('data-fill');
     const stroke = item.getAttribute('data-stroke');
+    const action = item.getAttribute('data-action');
     
     if (rightClickedObject.attrs.customType === 'object-sprite' && rightClickedObject.attrs.objectType >= 6) {
-        // Swap tomelith image source based on team color selection
+        // Handle Tomelith-specific countdown menu actions
+        if (action === 'clear-countdown') {
+            rightClickedObject.setAttr('countdownRemaining', null);
+            rightClickedObject.setAttr('countdownTotal', null);
+            updateTomelithCountdown(rightClickedObject);
+            
+            if (countdownSlider && countdownSliderValue) {
+                countdownSlider.value = 30;
+                countdownSliderValue.textContent = '未設定';
+                countdownSliderValue.style.color = '#aaaaaa';
+            }
+            
+            objectLayer.batchDraw();
+            contextMenu.style.display = 'none';
+            return;
+        }
+
+        // Swap tomelith image source based on team color selection (and clear countdown)
+        rightClickedObject.setAttr('countdownRemaining', null);
+        rightClickedObject.setAttr('countdownTotal', null);
+        updateTomelithCountdown(rightClickedObject);
+        
+        if (countdownSlider && countdownSliderValue) {
+            countdownSlider.value = 30;
+            countdownSliderValue.textContent = '未設定';
+            countdownSliderValue.style.color = '#aaaaaa';
+        }
+        
         let teamCode = '0';
         if (fill === '#ff4d4d') teamCode = 'A';
         else if (fill === '#3399ff') teamCode = 'B';
@@ -503,6 +653,59 @@ contextMenu.addEventListener('click', function(e) {
     objectLayer.batchDraw();
     contextMenu.style.display = 'none';
 });
+
+if (countdownSlider) {
+    countdownSlider.addEventListener('input', function(e) {
+        if (!rightClickedObject) return;
+        if (rightClickedObject.attrs.customType !== 'object-sprite' || rightClickedObject.attrs.objectType < 6) return;
+        
+        const remaining = parseInt(countdownSlider.value, 10);
+        
+        let size = 50;
+        if (rightClickedObject.attrs.objectType === 7) size = 62;
+        else if (rightClickedObject.attrs.objectType === 8) size = 75;
+        
+        let rankCode = 'B';
+        if (rightClickedObject.attrs.objectType === 7) rankCode = 'A';
+        else if (rightClickedObject.attrs.objectType === 8) rankCode = 'S';
+        
+        rightClickedObject.setAttr('countdownRemaining', remaining);
+        rightClickedObject.setAttr('countdownTotal', 30); // Default to 30s
+        
+        // Update slider value text
+        if (countdownSliderValue) {
+            countdownSliderValue.textContent = remaining === 0 ? 'READY' : `${remaining}s`;
+            countdownSliderValue.style.color = remaining === 0 ? '#00ffcc' : '#ff4d4d';
+        }
+        
+        // Optimize: Only swap the image to neutral if it isn't already neutral!
+        const currentTeam = rightClickedObject.getAttr('capturedTeam');
+        if (currentTeam !== '0') {
+            rightClickedObject.setAttr('capturedTeam', '0');
+            updateTomelithMask(rightClickedObject, '0', size);
+            
+            const newImg = new Image();
+            newImg.crossOrigin = 'Anonymous';
+            newImg.onload = function() {
+                const imgNode = rightClickedObject.findOne('.tomelith-image');
+                if (imgNode) imgNode.image(newImg);
+                objectLayer.batchDraw();
+            };
+            newImg.src = `object/score-${rankCode}-0.png`;
+        }
+        
+        updateTomelithCountdown(rightClickedObject);
+        objectLayer.batchDraw();
+    });
+    
+    // Stop event propagation to prevent triggering drag or document click events
+    countdownSlider.addEventListener('click', function(e) {
+        e.stopPropagation();
+    });
+    countdownSlider.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+    });
+}
 
 teamMarkerMenu.addEventListener('click', function(e) {
     e.stopPropagation(); // prevent closing instantly
@@ -591,9 +794,14 @@ baseFactionMenu.addEventListener('click', function(e) {
     baseFactionMenu.style.display = 'none';
 });
 
-document.addEventListener('click', () => {
-    contextMenu.style.display = 'none';
-    teamMarkerMenu.style.display = 'none';
+document.addEventListener('click', (e) => {
+    // If the click is inside the custom context menu, don't close it automatically
+    // (unless it's a context-menu-item which is handled by its own listener)
+    if (contextMenu && contextMenu.contains(e.target)) {
+        return;
+    }
+    if (contextMenu) contextMenu.style.display = 'none';
+    if (teamMarkerMenu) teamMarkerMenu.style.display = 'none';
     if (baseFactionMenu) baseFactionMenu.style.display = 'none';
 });
 
@@ -1224,8 +1432,21 @@ function exportTacticsJSON() {
             data.o.push([1, posX, posY, text]);
         }
         else if (type === 'object-sprite') {
-            // Schema: [TypeID=2, x, y, objectType, capturedTeam]
-            data.o.push([2, posX, posY, node.attrs.objectType, node.attrs.capturedTeam || '0']);
+            let remainingSec = node.getAttr('countdownRemaining');
+            let totalSec = node.getAttr('countdownTotal');
+            
+            // For backward compatibility / fallback
+            if (remainingSec === null || remainingSec === undefined) {
+                const start = node.getAttr('countdownStart');
+                const duration = node.getAttr('countdownDuration');
+                if (start && duration) {
+                    const elapsed = Date.now() - start;
+                    remainingSec = Math.max(0, Math.ceil((duration - elapsed) / 1000));
+                    totalSec = Math.round(duration / 1000);
+                }
+            }
+            // Schema: [TypeID=2, x, y, objectType, capturedTeam, remainingSec, totalSec]
+            data.o.push([2, posX, posY, node.attrs.objectType, node.attrs.capturedTeam || '0', remainingSec, totalSec]);
         }
         else if (type === 'base-scoreboard') {
             let index = 0; // blue
@@ -1442,7 +1663,14 @@ function importTacticsJSON() {
                     createAnnotation(item[3], x, y);
                 }
                 else if (typeID === 2) {
-                    createObjectSprite(item[3], x, y, item[4] || '0');
+                    const node = createObjectSprite(item[3], x, y, item[4] || '0');
+                    const remainingSec = item[5];
+                    const totalSec = item[6];
+                    if (node && remainingSec !== null && remainingSec !== undefined && totalSec !== null && totalSec !== undefined) {
+                        node.setAttr('countdownRemaining', remainingSec);
+                        node.setAttr('countdownTotal', totalSec);
+                        updateTomelithCountdown(node);
+                    }
                 }
                 else if (typeID === 3) {
                     createMarkerSprite(item[3], x, y);
@@ -1496,7 +1724,14 @@ function importTacticsJSON() {
                     createAnnotation(item.text, item.x, item.y);
                 }
                 else if (item.type === 'object-sprite') {
-                    createObjectSprite(item.objectType, item.x, item.y, item.capturedTeam || '0');
+                    const node = createObjectSprite(item.objectType, item.x, item.y, item.capturedTeam || '0');
+                    const remainingSec = item.remainingSec;
+                    const totalSec = item.totalSec;
+                    if (node && remainingSec !== null && remainingSec !== undefined && totalSec !== null && totalSec !== undefined) {
+                        node.setAttr('countdownRemaining', remainingSec);
+                        node.setAttr('countdownTotal', totalSec);
+                        updateTomelithCountdown(node);
+                    }
                 }
                 else if (item.type === 'marker-sprite') {
                     createMarkerSprite(item.markerType, item.x, item.y);
