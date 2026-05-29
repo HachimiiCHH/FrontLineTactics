@@ -104,7 +104,24 @@ objectLayer.add(transformer);
 
 const contextMenu = document.getElementById('custom-context-menu');
 const teamMarkerMenu = document.getElementById('team-marker-menu');
+const baseFactionMenu = document.getElementById('base-faction-menu');
 let rightClickedObject = null;
+
+// Dynamically center and position the base faction horizontal menu relative to the selected base icon
+function updateBaseFactionMenuPosition() {
+    if (!rightClickedObject || !baseFactionMenu || baseFactionMenu.style.display !== 'block') return;
+    
+    // Get absolute screen/stage coordinates of the base icon center
+    const pos = rightClickedObject.getAbsolutePosition();
+    
+    // Center the menu horizontally (baseFactionMenu width is 280px) and position it slightly below the icon
+    const menuWidth = 280;
+    const leftPos = pos.x - (menuWidth / 2);
+    const topPos = pos.y + 45;
+    
+    baseFactionMenu.style.left = leftPos + 'px';
+    baseFactionMenu.style.top = topPos + 'px';
+}
 
 function handleSelectObject(node) {
     if (selectedNode && selectedNode !== node) {
@@ -557,9 +574,27 @@ teamMarkerMenu.addEventListener('click', function(e) {
     }
 });
 
+baseFactionMenu.addEventListener('click', function(e) {
+    e.stopPropagation(); // prevent closing instantly
+    const item = e.target.closest('.faction-item');
+    if (!item || !rightClickedObject) return;
+    
+    const newTeam = item.getAttribute('data-team'); // 'red', 'blue', or 'yellow'
+    
+    // Determine which camp index this rightClickedObject is
+    let campIndex = 0;
+    if (rightClickedObject === redBaseIcon) campIndex = 1;
+    else if (rightClickedObject === yellowBaseIcon) campIndex = 2;
+    
+    setGCBaseFaction(campIndex, newTeam);
+    
+    baseFactionMenu.style.display = 'none';
+});
+
 document.addEventListener('click', () => {
     contextMenu.style.display = 'none';
     teamMarkerMenu.style.display = 'none';
+    if (baseFactionMenu) baseFactionMenu.style.display = 'none';
 });
 
 
@@ -701,7 +736,13 @@ function updateDraggableState() {
     // Update objectLayer nodes (teams, annotations, terrain, sprites)
     objectLayer.getChildren().forEach(node => {
         if (node !== transformer) {
-            node.draggable(isMoveMode);
+            if (node.attrs.customType === 'base-icon') {
+                node.draggable(false); // Base icons are physically fixed!
+            } else if (node.attrs.customType === 'base-scoreboard') {
+                node.draggable(isMoveMode); // Scoreboards are draggable!
+            } else {
+                node.draggable(isMoveMode);
+            }
         }
     });
 
@@ -928,10 +969,19 @@ stage.on('wheel', (e) => {
         y: pointer.y - mousePointTo.y * newScale,
     });
     stage.batchDraw();
+    updateBaseFactionMenuPosition(); // Keep horizontal menu in sync when zooming!
+});
+
+// Update base faction selector position when stage is dragged/panned
+stage.on('dragmove', () => {
+    updateBaseFactionMenuPosition();
 });
 
 stage.on('click tap', function (e) {
     const pos = stage.getRelativePointerPosition();
+    if (pos) {
+        console.log(`%c[FF14 Tactics Coordinate Calibrator]%c Clicked Canvas Coordinates -> %cx: ${Math.round(pos.x)}, y: ${Math.round(pos.y)}`, 'color: #ff9900; font-weight: bold;', 'color: #aaa;', 'color: #00ffcc; font-weight: bold;');
+    }
     // text mode: show floating input, do this before spawnMode
     if (currentMode === 'text' && (e.target === stage || e.target === konvaMapImage)) {
         const clientX = e.evt.clientX;
@@ -1144,6 +1194,11 @@ function exportTacticsJSON() {
             scoreboard.yellow,
             scoreboard.max
         ],
+        bf: [
+            blueBaseIcon ? blueBaseIcon.name().split('-')[2] : 'blue',
+            redBaseIcon ? redBaseIcon.name().split('-')[2] : 'red',
+            yellowBaseIcon ? yellowBaseIcon.name().split('-')[2] : 'yellow'
+        ],
         o: [], 
         l_arr: [] 
     };
@@ -1173,9 +1228,11 @@ function exportTacticsJSON() {
             data.o.push([2, posX, posY, node.attrs.objectType, node.attrs.capturedTeam || '0']);
         }
         else if (type === 'base-scoreboard') {
-            const team = node.name().split('-')[2]; // base-scoreboard-red -> red
-            // Schema: [TypeID=5, x, y, team]
-            data.o.push([5, posX, posY, team]);
+            let index = 0; // blue
+            if (node === redBaseScoreboard) index = 1;
+            else if (node === yellowBaseScoreboard) index = 2;
+            // Schema: [TypeID=5, x, y, index]
+            data.o.push([5, posX, posY, index]);
         }
         else if (type === 'marker-sprite') {
             // Save center coordinates
@@ -1297,6 +1354,13 @@ function importTacticsJSON() {
         // Create fresh on-map scoreboards since objectLayer was cleared
         createOnMapScoreboards();
 
+        // Restore base factions if present in imported data
+        if (data.bf && Array.isArray(data.bf) && data.bf.length === 3) {
+            setGCBaseFactionInternal(0, data.bf[0]);
+            setGCBaseFactionInternal(1, data.bf[1]);
+            setGCBaseFactionInternal(2, data.bf[2]);
+        }
+
         // 3. Restore stage scale & position
         stage.scale({ x: scaleVal, y: scaleVal });
         stage.position({ x: stageX, y: stageY });
@@ -1412,10 +1476,10 @@ function importTacticsJSON() {
                     bindObjectEvents(shape);
                 }
                 else if (typeID === 5) {
-                    const team = item[3];
-                    const target = (team === 'blue') ? blueBaseScoreboard :
-                                   (team === 'red') ? redBaseScoreboard :
-                                   (team === 'yellow') ? yellowBaseScoreboard : null;
+                    const index = item[3];
+                    const target = (index === 0) ? blueBaseScoreboard :
+                                   (index === 1) ? redBaseScoreboard :
+                                   (index === 2) ? yellowBaseScoreboard : null;
                     if (target) {
                         target.position({ x: x, y: y });
                     }
@@ -1464,9 +1528,11 @@ function importTacticsJSON() {
                     bindObjectEvents(shape);
                 }
                 else if (item.type === 'base-scoreboard') {
-                    const target = (item.team === 'blue') ? blueBaseScoreboard :
-                                   (item.team === 'red') ? redBaseScoreboard :
-                                   (item.team === 'yellow') ? yellowBaseScoreboard : null;
+                    const index = item.index !== undefined ? item.index : 
+                                  (item.team === 'red' ? 1 : item.team === 'yellow' ? 2 : 0);
+                    const target = (index === 0) ? blueBaseScoreboard :
+                                   (index === 1) ? redBaseScoreboard :
+                                   (index === 2) ? yellowBaseScoreboard : null;
                     if (target) {
                         target.position({ x: item.x, y: item.y });
                     }
@@ -1553,6 +1619,77 @@ const scoreboard = {
 let redBaseScoreboard = null;
 let blueBaseScoreboard = null;
 let yellowBaseScoreboard = null;
+let redBaseIcon = null;
+let blueBaseIcon = null;
+let yellowBaseIcon = null;
+
+// Global helper to swap GC base factions with mutual swapping (each faction is unique)
+function setGCBaseFaction(campIndex, team) {
+    const icon = (campIndex === 0) ? blueBaseIcon : (campIndex === 1) ? redBaseIcon : yellowBaseIcon;
+    if (!icon) return;
+    const oldTeam = icon.name().split('-')[2]; // 'blue', 'red', or 'yellow'
+    
+    // If the faction is not changing, do nothing
+    if (oldTeam === team) return;
+    
+    // Find which other camp currently has the target team
+    let swapCampIndex = -1;
+    for (let cIdx = 0; cIdx < 3; cIdx++) {
+        if (cIdx === campIndex) continue;
+        const otherIcon = (cIdx === 0) ? blueBaseIcon : (cIdx === 1) ? redBaseIcon : yellowBaseIcon;
+        if (otherIcon && otherIcon.name().split('-')[2] === team) {
+            swapCampIndex = cIdx;
+            break;
+        }
+    }
+    
+    // Perform the actual change for the current camp
+    setGCBaseFactionInternal(campIndex, team);
+    
+    // If another camp had the target team, swap it to the old team
+    if (swapCampIndex !== -1) {
+        setGCBaseFactionInternal(swapCampIndex, oldTeam);
+    }
+}
+
+// Absolute direct setting of a camp's GC faction
+function setGCBaseFactionInternal(campIndex, team) {
+    const icon = (campIndex === 0) ? blueBaseIcon : (campIndex === 1) ? redBaseIcon : yellowBaseIcon;
+    const sbGroup = (campIndex === 0) ? blueBaseScoreboard : (campIndex === 1) ? redBaseScoreboard : yellowBaseScoreboard;
+    
+    if (!icon || !sbGroup) return;
+    
+    let logo = 'map/BLUE.png';
+    let color = '#3399ff';
+    if (team === 'red') { logo = 'map/RED.png'; color = '#ff4d4d'; }
+    else if (team === 'yellow') { logo = 'map/YELLOW.png'; color = '#ffcc00'; }
+    
+    // Update Icon
+    icon.name(`base-icon-${team}`);
+    const baseLogo = icon.findOne('.base-logo');
+    if (baseLogo) {
+        const newImg = new Image();
+        newImg.crossOrigin = 'Anonymous';
+        newImg.onload = function() { baseLogo.image(newImg); objectLayer.batchDraw(); };
+        newImg.src = logo;
+    }
+    
+    // Update Scoreboard
+    sbGroup.name(`base-scoreboard-${team}`);
+    const rect = sbGroup.findOne('Rect');
+    if (rect) rect.stroke(color);
+    const sbLogo = sbGroup.findOne('.scoreboard-logo');
+    if (sbLogo) {
+        const newImg = new Image();
+        newImg.crossOrigin = 'Anonymous';
+        newImg.onload = function() { sbLogo.image(newImg); objectLayer.batchDraw(); };
+        newImg.src = logo;
+    }
+    const txt = sbGroup.findOne('.score-value');
+    if (txt) txt.text(`${scoreboard[team] || 0}`);
+    
+    objectLayer.batchDraw();
+}
 
 // Create scoreboards near starting/spawn bases on the map
 function createOnMapScoreboards() {
@@ -1560,6 +1697,9 @@ function createOnMapScoreboards() {
     if (redBaseScoreboard) redBaseScoreboard.destroy();
     if (blueBaseScoreboard) blueBaseScoreboard.destroy();
     if (yellowBaseScoreboard) yellowBaseScoreboard.destroy();
+    if (redBaseIcon) redBaseIcon.destroy();
+    if (blueBaseIcon) blueBaseIcon.destroy();
+    if (yellowBaseIcon) yellowBaseIcon.destroy();
 
     const mapUrl = document.getElementById('map-select').value;
 
@@ -1573,91 +1713,145 @@ function createOnMapScoreboards() {
     // Apply custom coordinates provided by the user for each map
     if (mapUrl.includes('M1.png')) {
         // 塵封密岩 (M1.png)
-        spawns.blue.x = 1074; spawns.blue.y = 745;
-        spawns.yellow.x = 475; spawns.yellow.y = 61;
-        spawns.red.x = 173; spawns.red.y = 765;
+        spawns.blue.x = 918; spawns.blue.y = 868;
+        spawns.red.x = 105; spawns.red.y = 680;
+        spawns.yellow.x = 678; spawns.yellow.y = 69;
     } else if (mapUrl.includes('M2.jpg')) {
         // 榮譽野 (M2.jpg)
-        spawns.yellow.x = 134; spawns.yellow.y = 459;
-        spawns.blue.x = 830; spawns.blue.y = 100;
-        spawns.red.x = 834; spawns.red.y = 853;
+        spawns.blue.x = 1113; spawns.blue.y = 149;
+        spawns.red.x = 594; spawns.red.y = 1019;
+        spawns.yellow.x = 87; spawns.yellow.y = 149;
     } else if (mapUrl.includes('M3.png')) {
         // 昂薩哈凱爾 (M3.png)
-        spawns.blue.x = 817; spawns.blue.y = 75;
-        spawns.red.x = 125; spawns.red.y = 470;
-        spawns.yellow.x = 923; spawns.yellow.y = 856;
+        spawns.blue.x = 997; spawns.blue.y = 109;
+        spawns.red.x = 127; spawns.red.y = 333;
+        spawns.yellow.x = 758; spawns.yellow.y = 976;
     }
 
-    function buildBaseScoreboard(team, data) {
+    function buildBaseIcon(team, data) {
         const group = new Konva.Group({
             x: data.x,
             y: data.y,
-            name: `base-scoreboard-${team}`,
-            customType: 'base-scoreboard',
-            draggable: true // Draggable by the user!
+            name: `base-icon-${team}`,
+            customType: 'base-icon',
+            draggable: false
         });
 
-        // 1. Large standalone Faction Logo that covers the background spawn points perfectly
+        // Create the base-logo Konva.Image synchronously so it can be queried immediately
+        const logoImg = new Konva.Image({
+            x: -40,
+            y: -40,
+            width: 80,
+            height: 80,
+            name: 'base-logo'
+        });
+        group.add(logoImg);
+
+        // Large standalone Faction Logo that covers the background spawn points perfectly
         const imgObj = new Image();
         imgObj.crossOrigin = 'Anonymous';
         imgObj.onload = function() {
-            const logoImg = new Konva.Image({
-                image: imgObj,
-                x: -40,
-                y: -40,
-                width: 80,
-                height: 80,
-                name: 'base-logo'
-            });
-            group.add(logoImg);
-            logoImg.moveToBottom(); // Render logo behind the score capsule overlay
+            logoImg.image(imgObj);
             objectLayer.batchDraw();
         };
         imgObj.src = data.logo;
 
-        // 2. Score capsule background attached underneath the logo
+        // Hover cursor pointer
+        group.on('mouseenter', () => {
+            stage.container().style.cursor = 'pointer';
+        });
+        group.on('mouseleave', () => {
+            stage.container().style.cursor = 'default';
+        });
+
+        // Right-click to swap Grand Company faction!
+        group.on('contextmenu', (e) => {
+            if (currentMode !== 'move') return;
+            e.evt.preventDefault();
+            rightClickedObject = group;
+            
+            baseFactionMenu.style.display = 'block';
+            updateBaseFactionMenuPosition(); // Perfectly center the horizontal selector below this base icon
+            
+            contextMenu.style.display = 'none';
+            teamMarkerMenu.style.display = 'none';
+            e.cancelBubble = true;
+        });
+
+        objectLayer.add(group);
+        return group;
+    }
+
+    function buildBaseScoreboard(team, data, initialOffset) {
+        const group = new Konva.Group({
+            x: data.x + initialOffset.x,
+            y: data.y + initialOffset.y,
+            name: `base-scoreboard-${team}`,
+            customType: 'base-scoreboard',
+            draggable: true // Scoreboards are draggable!
+        });
+
+        // Background Capsule
         const rect = new Konva.Rect({
-            x: -35,
-            y: 42,
-            width: 70,
-            height: 28,
-            fill: 'rgba(18, 18, 20, 0.92)',
+            x: -60,
+            y: -30,
+            width: 120,
+            height: 60,
+            fill: 'rgba(18, 18, 20, 0.88)',
             stroke: data.color,
-            strokeWidth: 2,
-            cornerRadius: 8,
+            strokeWidth: 2.5,
+            cornerRadius: 12,
             shadowColor: 'black',
-            shadowBlur: 8,
-            shadowOffset: { x: 0, y: 3 },
+            shadowBlur: 10,
+            shadowOffset: { x: 0, y: 4 },
             shadowOpacity: 0.5
         });
         group.add(rect);
 
-        // 3. Score text centered inside the attached capsule
+        // Create the scoreboard-logo Konva.Image synchronously so it can be queried immediately
+        const logoImg = new Konva.Image({
+            x: -50,
+            y: -22,
+            width: 44,
+            height: 44,
+            name: 'scoreboard-logo'
+        });
+        group.add(logoImg);
+
+        // Logo
+        const imgObj = new Image();
+        imgObj.crossOrigin = 'Anonymous';
+        imgObj.onload = function() {
+            logoImg.image(imgObj);
+            objectLayer.batchDraw();
+        };
+        imgObj.src = data.logo;
+
+        // Score Text
         const scoreText = new Konva.Text({
-            x: -35,
-            y: 48,
-            width: 70,
+            x: 4,
+            y: -12,
             text: '0',
-            fontSize: 15,
+            fontSize: 22,
             fontStyle: 'bold',
             fill: '#ffffff',
             fontFamily: 'monospace',
-            align: 'center',
             name: 'score-value'
         });
         group.add(scoreText);
 
-        // Click/tap on the base scoreboard on map to change scores directly!
+        // Click/tap to change scores directly!
         group.on('click tap', (e) => {
-            e.cancelBubble = true; // Stop event bubbling so draw or other actions aren't triggered
-            const teamName = team === 'red' ? '黑渦團' : team === 'blue' ? '不滅隊' : '雙蛇黨';
-            const currentVal = scoreboard[team];
+            e.cancelBubble = true;
+            const currentTeam = group.name().split('-')[2];
+            const teamName = currentTeam === 'red' ? '黑渦團' : currentTeam === 'blue' ? '不滅隊' : '雙蛇黨';
+            const currentVal = scoreboard[currentTeam];
             const newValStr = prompt(`請輸入 ${teamName} 的分數：`, currentVal);
             if (newValStr !== null) {
                 let newVal = parseInt(newValStr, 10);
                 if (!isNaN(newVal)) {
                     if (newVal < 0) newVal = 0;
-                    scoreboard[team] = newVal;
+                    scoreboard[currentTeam] = newVal;
                     updateScoreboardUI();
                 }
             }
@@ -1675,11 +1869,24 @@ function createOnMapScoreboards() {
         return group;
     }
 
-    blueBaseScoreboard = buildBaseScoreboard('blue', spawns.blue);
-    redBaseScoreboard = buildBaseScoreboard('red', spawns.red);
-    yellowBaseScoreboard = buildBaseScoreboard('yellow', spawns.yellow);
+    // Build Bases (fixed logos)
+    blueBaseIcon = buildBaseIcon('blue', spawns.blue);
+    redBaseIcon = buildBaseIcon('red', spawns.red);
+    yellowBaseIcon = buildBaseIcon('yellow', spawns.yellow);
 
-    // Keep base scoreboards always at the bottom of objectLayer so players move on top
+    // Build Scoreboards (draggable capsule scorebars next to camps)
+    const blueOffset = (spawns.blue.y > 900) ? { x: 0, y: -75 } : { x: 0, y: 75 };
+    const redOffset = (spawns.red.y > 900) ? { x: 0, y: -75 } : { x: 0, y: 75 };
+    const yellowOffset = (spawns.yellow.y > 900) ? { x: 0, y: -75 } : { x: 0, y: 75 };
+
+    blueBaseScoreboard = buildBaseScoreboard('blue', spawns.blue, blueOffset);
+    redBaseScoreboard = buildBaseScoreboard('red', spawns.red, redOffset);
+    yellowBaseScoreboard = buildBaseScoreboard('yellow', spawns.yellow, yellowOffset);
+
+    // Ensure correct rendering order (bases and scoreboards at bottom)
+    blueBaseIcon.moveToBottom();
+    redBaseIcon.moveToBottom();
+    yellowBaseIcon.moveToBottom();
     blueBaseScoreboard.moveToBottom();
     redBaseScoreboard.moveToBottom();
     yellowBaseScoreboard.moveToBottom();
@@ -1785,18 +1992,15 @@ function updateScoreboardUI() {
     });
 
     // Update On-Map Scoreboards (showing only the current score in large format)
-    if (redBaseScoreboard) {
-        const txt = redBaseScoreboard.findOne('.score-value');
-        if (txt) txt.text(`${scoreboard.red}`);
+    function updateBaseScoreboardText(group) {
+        if (!group) return;
+        const team = group.name().split('-')[2]; // base-scoreboard-red -> red
+        const txt = group.findOne('.score-value');
+        if (txt) txt.text(`${scoreboard[team]}`);
     }
-    if (blueBaseScoreboard) {
-        const txt = blueBaseScoreboard.findOne('.score-value');
-        if (txt) txt.text(`${scoreboard.blue}`);
-    }
-    if (yellowBaseScoreboard) {
-        const txt = yellowBaseScoreboard.findOne('.score-value');
-        if (txt) txt.text(`${scoreboard.yellow}`);
-    }
+    updateBaseScoreboardText(redBaseScoreboard);
+    updateBaseScoreboardText(blueBaseScoreboard);
+    updateBaseScoreboardText(yellowBaseScoreboard);
 
     // Calculate & render progress bars
     const maxVal = scoreboard.max || 1600;

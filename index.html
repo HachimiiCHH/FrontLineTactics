@@ -107,6 +107,83 @@
             color: white;
         }
 
+        /* 變更本陣勢力選單 (水平排版) */
+        #base-faction-menu {
+            display: none;
+            position: absolute;
+            background: rgba(18, 18, 22, 0.95);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 153, 0, 0.45);
+            border-radius: 12px;
+            color: white;
+            z-index: 1002;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            padding: 12px;
+            width: 280px;
+        }
+        #base-faction-menu .faction-menu-title {
+            font-size: 13px;
+            color: #ff9900;
+            margin-bottom: 10px;
+            text-align: center;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+        #base-faction-menu .faction-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        #base-faction-menu .faction-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1.5px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        #base-faction-menu .faction-item img {
+            width: 40px;
+            height: 40px;
+            object-fit: contain;
+            margin-bottom: 6px;
+            transition: transform 0.2s ease;
+        }
+        #base-faction-menu .faction-item span {
+            font-size: 11px;
+            font-weight: 500;
+            color: #ddd;
+        }
+        #base-faction-menu .faction-item[data-team="red"]:hover {
+            background: rgba(255, 77, 77, 0.15);
+            border-color: #ff4d4d;
+            box-shadow: 0 0 8px rgba(255, 77, 77, 0.4);
+        }
+        #base-faction-menu .faction-item[data-team="red"]:hover img {
+            transform: scale(1.1);
+        }
+        #base-faction-menu .faction-item[data-team="blue"]:hover {
+            background: rgba(51, 153, 255, 0.15);
+            border-color: #3399ff;
+            box-shadow: 0 0 8px rgba(51, 153, 255, 0.4);
+        }
+        #base-faction-menu .faction-item[data-team="blue"]:hover img {
+            transform: scale(1.1);
+        }
+        #base-faction-menu .faction-item[data-team="yellow"]:hover {
+            background: rgba(255, 204, 0, 0.15);
+            border-color: #ffcc00;
+            box-shadow: 0 0 8px rgba(255, 204, 0, 0.4);
+        }
+        #base-faction-menu .faction-item[data-team="yellow"]:hover img {
+            transform: scale(1.1);
+        }
+
         /* 勢力分數計數器樣式 */
         #scoreboard-widget {
             position: absolute;
@@ -271,6 +348,24 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
 </head>
 <body>
+    <!-- Base Faction Selection Menu (Horizontal Row) -->
+    <div id="base-faction-menu">
+        <div class="faction-menu-title">變更本陣勢力 (互換位置)</div>
+        <div class="faction-row">
+            <div class="faction-item" data-team="red">
+                <img src="map/RED.png" alt="黑渦團">
+                <span>黑渦團</span>
+            </div>
+            <div class="faction-item" data-team="blue">
+                <img src="map/BLUE.png" alt="不滅隊">
+                <span>不滅隊</span>
+            </div>
+            <div class="faction-item" data-team="yellow">
+                <img src="map/YELLOW.png" alt="雙蛇黨">
+                <span>雙蛇黨</span>
+            </div>
+        </div>
+    </div>
 
     <div id="custom-context-menu">
         <div class="context-menu-item" data-action="set-type" data-fill="#ff4d4d" data-stroke="#ffffff">🔴 A隊 (紅實心)</div>
