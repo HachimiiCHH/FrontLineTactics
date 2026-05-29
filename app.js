@@ -1172,6 +1172,11 @@ function exportTacticsJSON() {
             // Schema: [TypeID=2, x, y, objectType, capturedTeam]
             data.o.push([2, posX, posY, node.attrs.objectType, node.attrs.capturedTeam || '0']);
         }
+        else if (type === 'base-scoreboard') {
+            const team = node.name().split('-')[2]; // base-scoreboard-red -> red
+            // Schema: [TypeID=5, x, y, team]
+            data.o.push([5, posX, posY, team]);
+        }
         else if (type === 'marker-sprite') {
             // Save center coordinates
             const centerX = Math.round((node.x() + node.width() / 2) * 10) / 10;
@@ -1406,6 +1411,15 @@ function importTacticsJSON() {
                     objectLayer.add(shape);
                     bindObjectEvents(shape);
                 }
+                else if (typeID === 5) {
+                    const team = item[3];
+                    const target = (team === 'blue') ? blueBaseScoreboard :
+                                   (team === 'red') ? redBaseScoreboard :
+                                   (team === 'yellow') ? yellowBaseScoreboard : null;
+                    if (target) {
+                        target.position({ x: x, y: y });
+                    }
+                }
             } else {
                 // Fallback for Verbose JSON object schema
                 if (item.type === 'team-node') {
@@ -1448,6 +1462,14 @@ function importTacticsJSON() {
                     
                     objectLayer.add(shape);
                     bindObjectEvents(shape);
+                }
+                else if (item.type === 'base-scoreboard') {
+                    const target = (item.team === 'blue') ? blueBaseScoreboard :
+                                   (item.team === 'red') ? redBaseScoreboard :
+                                   (item.team === 'yellow') ? yellowBaseScoreboard : null;
+                    if (target) {
+                        target.position({ x: item.x, y: item.y });
+                    }
                 }
             }
         });
@@ -1572,51 +1594,55 @@ function createOnMapScoreboards() {
             y: data.y,
             name: `base-scoreboard-${team}`,
             customType: 'base-scoreboard',
-            draggable: false // Fixed and locked in coordinates!
+            draggable: true // Draggable by the user!
         });
 
-        // Background Capsule (enlarged & shortened width for pure Logo + Score capsule)
-        const rect = new Konva.Rect({
-            x: -60,
-            y: -30,
-            width: 120,
-            height: 60,
-            fill: 'rgba(18, 18, 20, 0.88)',
-            stroke: data.color,
-            strokeWidth: 2.5, // slightly thicker outline for high contrast
-            cornerRadius: 12,
-            shadowColor: 'black',
-            shadowBlur: 10,
-            shadowOffset: { x: 0, y: 4 },
-            shadowOpacity: 0.5
-        });
-        group.add(rect);
-
-        // Logo (enlarged from 36px to 44px)
+        // 1. Large standalone Faction Logo that covers the background spawn points perfectly
         const imgObj = new Image();
         imgObj.crossOrigin = 'Anonymous';
         imgObj.onload = function() {
             const logoImg = new Konva.Image({
                 image: imgObj,
-                x: -50,
-                y: -22,
-                width: 44,
-                height: 44
+                x: -40,
+                y: -40,
+                width: 80,
+                height: 80,
+                name: 'base-logo'
             });
             group.add(logoImg);
+            logoImg.moveToBottom(); // Render logo behind the score capsule overlay
             objectLayer.batchDraw();
         };
         imgObj.src = data.logo;
 
-        // Score display Text (enlarged from 14px to 22px, showing only current score!)
+        // 2. Score capsule background attached underneath the logo
+        const rect = new Konva.Rect({
+            x: -35,
+            y: 42,
+            width: 70,
+            height: 28,
+            fill: 'rgba(18, 18, 20, 0.92)',
+            stroke: data.color,
+            strokeWidth: 2,
+            cornerRadius: 8,
+            shadowColor: 'black',
+            shadowBlur: 8,
+            shadowOffset: { x: 0, y: 3 },
+            shadowOpacity: 0.5
+        });
+        group.add(rect);
+
+        // 3. Score text centered inside the attached capsule
         const scoreText = new Konva.Text({
-            x: 4,
-            y: -12, // perfectly vertically centered for 22px font height
+            x: -35,
+            y: 48,
+            width: 70,
             text: '0',
-            fontSize: 22,
+            fontSize: 15,
             fontStyle: 'bold',
             fill: '#ffffff',
             fontFamily: 'monospace',
+            align: 'center',
             name: 'score-value'
         });
         group.add(scoreText);
@@ -1657,6 +1683,9 @@ function createOnMapScoreboards() {
     blueBaseScoreboard.moveToBottom();
     redBaseScoreboard.moveToBottom();
     yellowBaseScoreboard.moveToBottom();
+
+    // Sync draggable states to current active mode
+    updateDraggableState();
 
     objectLayer.batchDraw();
 }
