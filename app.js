@@ -1,6 +1,6 @@
 // ========================================================
 // Hachimii - FF14 Front Line Tactics
-// Version: v0.4.0 (Active Tomelith Territory Indicator Edition)
+// Version: v0.4.1 (Ultra High Performance Dragging & Rendering Edition)
 // Engine: Konva.js (Multi-Layer Architecture)
 // ========================================================
 
@@ -15,6 +15,83 @@ const mapLayer = new Konva.Layer();
 const objectLayer = new Konva.Layer();   
 const drawLayer = new Konva.Layer();     
 stage.add(mapLayer, objectLayer, drawLayer);
+
+// Point 3 Optimization: Disable hit-graph redraws during drag operations to eliminate duplicate Canvas redraws
+Konva.hitOnDragEnabled = false;
+
+// ========================================================
+// High-Performance Hybrid DOM Overlay Engine
+// ========================================================
+const domContainer = document.getElementById('dom-object-container');
+let selectedDomNode = null;
+let rightClickedDomNode = null;
+
+function syncDomContainerTransform() {
+    if (domContainer && stage) {
+        domContainer.style.transform = `translate3d(${stage.x()}px, ${stage.y()}px, 0px) scale(${stage.scaleX()})`;
+    }
+}
+stage.on('dragmove positionChange scaleChange wheel batchDraw', syncDomContainerTransform);
+window.addEventListener('resize', syncDomContainerTransform);
+
+function selectDomNode(node) {
+    if (selectedDomNode && selectedDomNode !== node) {
+        selectedDomNode.classList.remove('dom-selected');
+    }
+    selectedDomNode = node;
+    if (node) {
+        node.classList.add('dom-selected');
+    }
+}
+
+function makeDomNodeDraggable(el, onEndCallback) {
+    let startX = 0, startY = 0, initialX = 0, initialY = 0;
+    let isDragging = false;
+
+    el.addEventListener('pointerdown', (e) => {
+        if (currentMode !== 'move') return;
+        if (e.button !== 0) return; // Left click only
+        e.stopPropagation();
+
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        initialX = parseFloat(el.dataset.x) || 0;
+        initialY = parseFloat(el.dataset.y) || 0;
+
+        try { el.setPointerCapture(e.pointerId); } catch(err) {}
+        selectDomNode(el);
+
+        const onPointerMove = (moveEvt) => {
+            if (!isDragging) return;
+            const scale = stage.scaleX() || 1;
+            const dx = (moveEvt.clientX - startX) / scale;
+            const dy = (moveEvt.clientY - startY) / scale;
+
+            const newX = initialX + dx;
+            const newY = initialY + dy;
+
+            el.style.left = newX + 'px';
+            el.style.top = newY + 'px';
+            el.dataset.x = newX;
+            el.dataset.y = newY;
+        };
+
+        const onPointerUp = (upEvt) => {
+            if (!isDragging) return;
+            isDragging = false;
+            try { el.releasePointerCapture(upEvt.pointerId); } catch(err) {}
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
+            if (onEndCallback) onEndCallback();
+        };
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+    });
+}
 
 let activeTacticalColor = '#ff4d4d'; 
 let currentLineTag = 'line-red'; 
@@ -56,6 +133,7 @@ function loadMap(url) {
         
         mapLayer.batchDraw();
         stage.batchDraw();
+        syncDomContainerTransform();
     };
     mapImageObj.src = url;
 }
@@ -201,6 +279,8 @@ function handleRightClickObject(e, node) {
 }
 
 function bindObjectEvents(node) {
+    if (typeof node.transformsEnabled === 'function') node.transformsEnabled('position');
+    if (typeof node.perfectDrawEnabled === 'function') node.perfectDrawEnabled(false);
     node.on('mousedown touchstart click tap', (e) => {
         // Redirection to move mode if clicked while in a spawn mode!
         if (objectSpawnMode || spawnMode || markerSpawnMode) {
@@ -1180,9 +1260,32 @@ stage.on('wheel', (e) => {
     updateBaseFactionMenuPosition(); // Keep horizontal menu in sync when zooming!
 });
 
-// Update base faction selector position when stage is dragged/panned
+// Point 2 Optimization: Prevent dual stage panning & object dragging matrix calculations
+stage.on('dragstart', (e) => {
+    if (e.target !== stage) {
+        stage.draggable(false);
+    }
+});
+
+stage.on('dragend', (e) => {
+    if (e.target !== stage) {
+        updateStageDraggableState();
+    }
+});
+
+// 1000Hz High-Frequency Mouse Event Throttling Optimization (rAF Lock)
+let isDragMoveScheduled = false;
+
 stage.on('dragmove', () => {
-    updateBaseFactionMenuPosition();
+    if (baseFactionMenu && baseFactionMenu.style.display === 'block') {
+        updateBaseFactionMenuPosition();
+    }
+    if (isDragMoveScheduled) return;
+    isDragMoveScheduled = true;
+    requestAnimationFrame(() => {
+        isDragMoveScheduled = false;
+        objectLayer.batchDraw();
+    });
 });
 
 stage.on('click tap', function (e) {
@@ -2051,11 +2154,7 @@ function createOnMapScoreboards() {
             fill: 'rgba(18, 18, 20, 0.88)',
             stroke: data.color,
             strokeWidth: 2.5,
-            cornerRadius: 12,
-            shadowColor: 'black',
-            shadowBlur: 10,
-            shadowOffset: { x: 0, y: 4 },
-            shadowOpacity: 0.5
+            cornerRadius: 12
         });
         group.add(rect);
 
